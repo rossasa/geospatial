@@ -137,6 +137,7 @@ openerp.base_geoengine = function(openerp) {
                         new OpenLayers.Layer.Google(
                             l.name,
                             {type: glayers[l.google_type],
+				numZoomLevels: 20,
                             }
                         ));
                     break;
