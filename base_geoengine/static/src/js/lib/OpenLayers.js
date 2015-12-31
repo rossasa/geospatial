@@ -64316,11 +64316,13 @@ OpenLayers.Layer.Google.v3 = {
                             me.setGMapVisibility(me.getVisibility());
                             me.moveTo(me.map.getCenter());
                         });
-                    } else {
-                        map.div.appendChild(container);
-                        cache.googleControl.appendChild(map.viewPortDiv);
-                        google.maps.event.trigger(this.mapObject, 'resize');
-                    }
+                    
+		    //} else {
+		    }                    
+		    map.div.appendChild(container);
+                    cache.googleControl.appendChild(map.viewPortDiv);
+		    google.maps.event.trigger(this.mapObject, 'resize');
+		    //}
                 }
                 this.mapObject.setMapTypeId(type);                
             } else if (cache.googleControl.hasChildNodes()) {
