@@ -8,10 +8,13 @@
 */
 
 openerp.base_geoengine = function(openerp) {
+    "use strict";
+
+    var _t = openerp.web._t;
     //var map, layer, vectorLayers = [];
     //TODO: remove this DEBUG
-    map = null;
-    layer = null;
+    var map = null;
+    var layer = null;
     /* CONSTANTS */
     var DEFAULT_BEGIN_COLOR = "#FFFFFF";
     var DEFAULT_END_COLOR = "#000000";
@@ -32,13 +35,13 @@ openerp.base_geoengine = function(openerp) {
     };
 
     /**
-     * Method: formatHTML
+     * Method: formatFeatureHTML
      * formats attributes into a string
      *
      * Parameters:
      * a - {Object}
      */
-    var formatHTML = function(a) {
+    var formatFeatureHTML = function(a, fields) {
         var str = [];
         var oid = '';
         for (var key in a) {
@@ -47,15 +50,28 @@ openerp.base_geoengine = function(openerp) {
                 if (val == false) {
                     continue;
                 }
-                var label = '';
-                if (val instanceof Array) {
-                    str.push('<span style="font-weight: bold">' + key.charAt(0).toUpperCase() + key.slice(1) + '</span>: ' +val[1]);
-                } else {
-                    label = '<span style="font-weight: bold">' + key.charAt(0).toUpperCase() + key.slice(1) + '</span>: ' +val;
-                     if (key == 'id') {
-                        oid = label;
+                var span = '';
+                if (fields.hasOwnProperty(key)) {
+                    var field = fields[key];
+                    var label = field.string;
+                    if (field.type == 'selection') {
+                        // get display value of selection option
+                        for (var option in field.selection) {
+                            if (field.selection[option][0] == val) {
+                                val = field.selection[option][1];
+                                break;
+                            }
+                        }
+                    }
+                    if (val instanceof Array) {
+                        str.push('<span style="font-weight: bold">' + label + '</span>: ' +val[1]);
                     } else {
-                        str.push(label);
+                        span = '<span style="font-weight: bold">' + label + '</span>: ' +val;
+                         if (key == 'id') {
+                            oid = span;
+                        } else {
+                            str.push(span);
+                        }
                     }
                 }
             }
@@ -64,6 +80,18 @@ openerp.base_geoengine = function(openerp) {
         return str.join('<br />');
     };
 
+    /**
+     * Method: formatFeatureListHTML
+     * formats attributes into a string
+     *
+     * Parameters:
+     * features - [Array]
+     */
+    var formatFeatureListHTML = function(features) {
+        var str = [];
+        str.push(features.length + ' features selected');
+        return str.join('<br />');
+    };
     /**
      * Method: createBackgroundLayers
      * creates background layers from config
@@ -162,22 +190,23 @@ openerp.base_geoengine = function(openerp) {
             this.vectorLayers = [];
             // use {selectedFeatures:[]} as a hack to simulate a vector layer
             // with no feature selected
-            this.selectFeatureControls = [
-                new OpenLayers.Control.SelectFeature(
-                {selectedFeatures:[]}, {hover: true, highlightOnly: true}),
-                new OpenLayers.Control.SelectFeature(
-                    {selectedFeatures:[]}, {})
-            ];
-        },
-        limit: function() {
-            return false;
-            var menu = document.getElementById('query_limit');
-            var limit = parseInt(menu.options[menu.selectedIndex].value);
-            if (limit > 0) {
-                return limit;
-            } else {
-                return false;
-            }
+            this.selectFeatureControls = {
+                selectHover: new OpenLayers.Control.SelectFeature(
+                    {selectedFeatures:[]}, {hover: true, highlightOnly: true}),
+                select: new OpenLayers.Control.SelectFeature(
+                    {selectedFeatures:[]},
+                    {
+                        // displayClass used to find it
+                        displayClass: 'olSelectFeature',
+                        clickout: true, toggle: false,
+                        multiple: false,
+                        toggleKey: "ctrlKey",
+                        multipleKey: "shiftKey", box: false
+                    }
+                )
+            };
+            this.selectFeatureControls.selectHover.handlers.feature.stopDown = false;
+            this.selectFeatureControls.select.handlers.feature.stopDown = false;
         },
         load_view: function(context) {
             var self = this;
@@ -205,7 +234,7 @@ openerp.base_geoengine = function(openerp) {
 
         do_search: function(domains, contexts, groupbys) {
             var self = this;
-            self.dataset.read_slice(_.keys(self.fields_view.fields), {'domain':domains, 'limit':self.limit(), 'offset':self.offset}).then(self.do_load_vector_data);
+            self.dataset.read_slice(_.keys(self.fields_view.fields), {'domain':domains}).then(self.do_load_vector_data);
         },
 
         /**
@@ -232,23 +261,55 @@ openerp.base_geoengine = function(openerp) {
                 },
                 eventListeners: {
                     "featureselected": function(event) {
-                        $("#map_info").html(formatHTML(event.feature.attributes));
+                        var selectedFeatures = this.selectedFeatures[0].layer.selectedFeatures;
+                        if (selectedFeatures.length == 1) {
+                            $("#map_info").html(formatFeatureHTML(event.feature.attributes, self.fields_view.fields));
+                            $("#map_info_filter_selection").hide();
+                        } else {
+                            $("#map_info").html(formatFeatureListHTML(selectedFeatures));
+                            $("#map_info_filter_selection").show();
+                            $("#map_info_filter_selection").off().click(function() {
+                                self.filter_selection();
+                            });
+                        }
                         $("#map_infobox").show();
                     },
-                    "featureunselected": function() {
-                        $("#map_infobox").hide();
+                    "featureunselected": function(event) {
+                        var selectedFeatures = []
+                        if (this.selectedFeatures.length == 0) {
+                            $("#map_infobox").hide();
+                            return;
+                        }
+                        selectedFeatures = this.selectedFeatures[0].layer.selectedFeatures;
+                        if (selectedFeatures.length == 0) {
+                            $("#map_infobox").hide();
+                        } else if (selectedFeatures.length == 1) {
+                            $("#map_info").html(formatFeatureHTML(event.feature.attributes, self.fields_view.fields));
+                            $("#map_info_filter_selection").hide();
+                        } else {
+                            $("#map_info").html(formatFeatureListHTML(selectedFeatures));
+                            $("#map_info_filter_selection").show();
+                            $("#map_info_filter_selection").off().click(function() {
+                                self.filter_selection();
+                            });
+                        }
                     }
                 }
             });
+            if (data.length == 0)
+                return vl
             _.each(data, function(item) {
-                attributes = _.clone(item);
+                var attributes = _.clone(item);
                 _.each(_.keys(self.geometry_columns), function(item) {
                     delete attributes[item];
                 });
-                features.push(new OpenLayers.Feature.Vector(
-                    geojson.parseGeometry(
-                        OpenLayers.Format.JSON.prototype.read.call(self, item[cfg.geo_field_id[1]])),
-                        attributes));
+                var geometry = item[cfg.geo_field_id[1]];
+                if (geometry) {
+                    features.push(new OpenLayers.Feature.Vector(
+                        geojson.parseGeometry(
+                            OpenLayers.Format.JSON.prototype.read.call(self, geometry)),
+                            attributes));
+                }
             });
             var indicator = cfg.attribute_field_id[1];
             switch (cfg.geo_repr) {
@@ -375,23 +436,28 @@ openerp.base_geoengine = function(openerp) {
                 return;
             }
             var self = this;
-            _.each(this.selectFeatureControls, function(ctrl) {
+            for(var key in this.selectFeatureControls) {
+                var ctrl = this.selectFeatureControls[key];
                 ctrl.deactivate();
                 // setLayer a fake layer to avoid js error on unselectAll
                 // use {selectedFeatures:[]} as a hack to simulate a vector
                 // layer with no feature selected
                 ctrl.setLayer({selectedFeatures:[]});
-            });
+            }
             _.each(this.vectorLayers, function(vlayer) {
                 vlayer.destroy();
             });
 
             this.vectorLayers = this.createVectorLayers(data);
             map.addLayers(this.vectorLayers);
-            _.each(this.selectFeatureControls, function(ctrl) {
-                ctrl.setLayer(self.vectorLayers);
+            for(var key in this.selectFeatureControls) {
+                var ctrl = this.selectFeatureControls[key];
+                ctrl.setLayer(this.vectorLayers);
+                // ensure map is define on controler and handler
+                ctrl.setMap(map);
+                ctrl.handlers.feature.map = map;
                 ctrl.activate();
-            });
+            }
             _.each(this.vectorLayers, function(vlayer) {
                 // keep only one vector layer active at startup
                 if (vlayer != self.vectorLayers[0]) {
@@ -442,10 +508,18 @@ openerp.base_geoengine = function(openerp) {
                         new OpenLayers.Control.Attribution(),
                         new OpenLayers.Control.LayerSwitcher({roundedCornerColor: 'black'}),
                         new OpenLayers.Control.PanZoomBar(),
-                        new OpenLayers.Control.ToolPanel()
                     ]
                 });
-                map.addControls(this.selectFeatureControls);
+                map.addControl(this.selectFeatureControls.selectHover);
+                map.addControl(this.selectFeatureControls.select);
+                // create box handler as we want it to be activable
+                this.selectFeatureControls.select.handlers.box = new OpenLayers.Handler.Box(
+                    this.selectFeatureControls.select, {done: this.selectFeatureControls.select.selectBox},
+                    {boxDivClassName: "olHandlerBoxSelectFeature"}
+                );
+                this.selectFeatureControls.select.setMap(map);
+                this.selectFeatureControls.select.handlers.map = map;
+                map.addControl(new OpenLayers.Control.ToolPanel());
                 map.zoomToMaxExtent();
                 this.map = map;
                 this.do_search(self.domains, null, self.offet);
@@ -455,6 +529,30 @@ openerp.base_geoengine = function(openerp) {
         do_show: function () {
             this._super();
             this.render_map();
+        },
+
+        filter_selection: function() {
+            var selectedFeatures = [];
+            for (var l in this.map.layers) {
+                var layer = this.map.layers[l];
+                if (layer.selectedFeatures && layer.selectedFeatures.length > 0) {
+                    selectedFeatures = layer.selectedFeatures;
+                    break;
+                }
+            }
+            var selected_ids = selectedFeatures.map(function(x) {return x.data.id;});
+            var selection_domain = [['id', 'in', selected_ids]];
+            var searchview = this.ViewManager.searchview
+            searchview.query.add({
+                category: _t("Geo selection"),
+                values: {label: _t("Geo selection")},
+                icon: '$', // world globe in mnmlicons
+                field: {
+                  get_context: function () { },
+                  get_domain: function() {return selection_domain;},
+                  get_groupby: function () { }
+                }
+            });
         },
 
     });
@@ -621,8 +719,8 @@ openerp.base_geoengine = function(openerp) {
                 if (! _.isObject(ui.newPanel)) {
                     return;
                 }
-                geo_tab_id = self.$el.closest('.oe_notebook_page').get(0).id;
-                active_tab_id = ui.newPanel.get(0).id;
+                var geo_tab_id = self.$el.closest('.oe_notebook_page').get(0).id;
+                var active_tab_id = ui.newPanel.get(0).id;
                 if (_.isEqual(geo_tab_id, active_tab_id)) {
                       self.render_map();
                       return;
@@ -1027,6 +1125,11 @@ OpenLayers.Control.ToolPanel = OpenLayers.Class(OpenLayers.Control.Panel, {
                         }
                     }
                 }),
+            new OpenLayers.Control.SelectBox({
+                    displayClass: 'olControlSelectBox',
+                    type: OpenLayers.Control.TYPE_TOOL,
+                    title: "Selection",
+                }),
             navCtrl
         ]);
     },
@@ -1050,6 +1153,31 @@ OpenLayers.Control.ToolPanel = OpenLayers.Class(OpenLayers.Control.Panel, {
         }
         element.innerHTML = out;
         element.style.display = 'block';
+    },
+
+    CLASS_NAME: "OpenLayers.Control.ToolPanel"
+});
+
+OpenLayers.Control.SelectBox = OpenLayers.Class(OpenLayers.Control, {
+    activate: function() {
+        var was_active = this.active;
+        OpenLayers.Control.prototype.activate.apply(this, arguments);
+        var ctrl = this.map.getControlsBy('displayClass', 'olSelectFeature')[0];
+        if (!was_active) {
+            ctrl.box = true;
+            ctrl.deactivate();
+            ctrl.activate();
+        }
+    },
+    deactivate: function() {
+        var was_active = this.active;
+        OpenLayers.Control.prototype.deactivate.apply(this, arguments);
+        var ctrl = this.map.getControlsBy('displayClass', 'olSelectFeature')[0];
+        if (was_active) {
+            ctrl.box = false;
+            ctrl.deactivate();
+            ctrl.activate();
+        }
     },
     CLASS_NAME: "OpenLayers.Control.ToolPanel"
 });
