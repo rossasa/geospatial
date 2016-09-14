@@ -22,6 +22,6 @@
     
         <menuitem name="GeoEngine Backend" id="geoengine_base_menu"
                   web_icon="images/map.png" groups="group_geoengine_admin"
-                  web_icon_hover="images/map-hover.png" parent_id="base.menu_custom"/>
+                  web_icon_hover="images/map-hover.png" parent="base.menu_custom"/>
     </data>
 </openerp>
